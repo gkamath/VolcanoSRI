@@ -1,0 +1,243 @@
+#ifndef TOMOPARTITION_H
+#define TOMOPARTITION_H
+
+#include <vector>
+#include <map>
+#include <string>
+#include <iostream>
+#include <fstream>
+#include <pthread.h>
+#include <ctime>
+#include <stdio.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <stdlib.h>
+#include <string.h>
+#include <string>
+#include <ctime>
+#include <sstream>
+#include <vector>
+#include <iostream>
+#include <iterator>
+#include <pthread.h>
+#include <networkutils.h>
+#include "SMPI.h"
+
+#define SPACE_CHAR " "
+#define STAR_CHAR "*"
+#define UNDER_SCORE "_"
+#define STATUS_FILE "status.ui"
+#define STATUS_FILE_INI "status_init.ui"
+
+
+using namespace std;
+
+extern vector< vector<double> > A_l;
+extern vector< vector<int> > idx_l;
+extern vector<double> b_l;
+
+extern double rho;
+extern double lambda;
+extern double tolerance;
+extern int rounds;
+extern int rays;
+extern int vector_len;
+extern int node_id;
+
+extern int sent_rays;
+extern int received_rays;
+extern bool all_done;
+
+extern string tt_file;
+extern string slowness_ofile;
+
+extern int packet_received[];
+
+
+extern map<string, int> recv_rays_count;
+
+#endif
+
+
+
+//DEFUNCT INFORMATION: THE COMMENTED INFORMATION BELOW HAS BEEN MERGED INTO OTHER FILES
+
+
+
+
+/*
+#include "Tomography.h"
+#include "readdatafrommatlab.h"
+#include "BayesianArt.h"
+#include "ComputeThread.h"
+#include "InitDaemon.h"
+#include "LogUtil.h"
+#include "fileOperation.h"
+#include "UdpThreads.h"
+#include "MulticastThread.h"
+#include "Bundle.h"
+*/
+/*
+#define WAITTIME 1.5
+#define NULL_DESC "/dev/null"
+#define RUN_DIR "./"
+#define BUFFER 10000
+#define STATION_NUM 100
+
+#define HALF_SECOND 500000
+#define DEFAULT_SENSING_PORT 4444
+#define DEFAULT_PORT 6666
+#define IP_ADD_LEN 4
+
+#define SIDE_LEN 10.0
+#define INF 9999.9999
+*/
+/*
+// path macro
+#ifdef ANDROID
+
+#define TOP_CONFIG_FILE "/data/data/tomopartition/topconfig.config"
+#define EXE_PATH "/data/data/tomopartition/"
+#define BUNDLE_PATH "/sdcard/"
+#define MODEL_PATH "/sdcard/.slowness/"
+#define MODEL_TEMP_PATH "/sdcard/.slowness_temp/"
+// temp test on android
+// #define MODEL_TEMP_PATH "/sdcard/"
+
+#else
+
+#define TOP_CONFIG_FILE "config"
+#define SLOWNESS_FILE "vector"
+#define EXE_PATH "./"
+#define BUNDLE_PATH "./"
+#define MODEL_PATH "./slowness/"
+#define MODEL_TEMP_PATH "./"
+#define MODEL_RECV_PATH "./bnin/"
+
+#endif
+*/
+
+
+// #define TIME_SCALE 5
+
+/*
+extern int res_levels;			//resolution levels
+extern int current_res_level;		//current resolution level
+//extern char ip_add[];				//ip address of current node
+extern int add_b3;
+extern int add_b4;
+extern pair<int, int> station_scale;		//station index simulated on current node
+extern int socket_port;
+
+extern vector<string> config_files_name;	//config files name on different resolution levels
+extern vector<int> res_dims;			//resolution dimensions on different resolution levels
+extern vector<int> part_dims;			//partitions on different resolution levels
+extern vector< pair<int, int> > event_scales;	//event index simulated on different resolution levels
+extern vector<string> tt_input_file;		//travel time input files on different resolution levels
+extern vector<string> model_file_prefix;	//output model files prefix on different resolution levels
+extern vector<int> landlord_idx;		//landlord idx on different resolution levels
+extern vector< vector<string> > landlord_list;	//landlord list on different resolution levels
+*/
+//ray informations from travel times and event/station log
+/*
+extern vector< vector< vector<double> > > A_ls;
+extern vector< vector< vector<int> > > idx_ls;
+extern vector< vector<double> > b_ls;
+*/
+
+/*
+extern vector<double> slowind;
+extern vector<double> slow_self;
+extern vector< vector<double> > slowall;
+
+//store the sensed informations
+extern vector< vector<double> > station_coors;
+extern vector< vector<double> > event_coors;
+extern vector<double> tts;
+extern double station_pos[];
+
+//current slowness model(used for ray tracing too)
+extern double velocity;
+extern vector<double> init_slowness;
+extern vector<double> slowness_perturb;
+extern vector<double> slowness;
+
+extern string event_loc_file;
+extern string station_loc_file;
+
+extern int rays;
+extern vector<int> sub_rays;
+extern vector<int> sent_sub_rays;
+extern int current_parts;
+
+
+// rays received by landlord
+extern int res_dim;
+extern int time_counter;
+*/
+/*extern string logfile;
+*/
+/*
+extern string ipadd_string;
+
+extern string node_name;
+extern int server_b3;
+extern int server_b4;
+// server address
+extern char server_host[];// = "10.0.9.7";
+
+extern bool tomo_calc;
+extern bool calc_done;
+extern bool tx_done;
+extern bool rx_done;
+*/
+// slowness model
+
+/*
+extern int dim;
+*/
+// node status
+
+//timer information
+/*extern double duration;
+extern clock_t start;
+*/
+// status mutex lock
+
+/*extern pthread_mutex_t mutex_status;
+*/
+//broadcast enable value
+//extern bool broadcast;
+
+//state variables for random gossip
+/*
+extern bool solicit;
+extern bool wait_for_recv;
+extern bool recieve_msg;
+extern pthread_mutex_t wait_recv;
+
+//ip during random gossip
+extern char chosen_ip[20];
+
+
+//specified number of gossip updations
+extern int specified_rounds;
+*/
+// thread control flags, mutex locks and conditional variables
+/*extern bool recv_window;
+extern bool sending_flag;
+*/
+
+/*
+extern pthread_mutex_t mutex_sending_flag;
+extern pthread_cond_t cv_sending_flag;
+
+extern pthread_mutex_t mutex_rx_done;
+extern pthread_mutex_t mutex_tx_done;
+
+extern pthread_mutex_t mutex_tx_progress;
+extern vector<float> model_transfer_progress;
+*/
+// counting rays recv from different sender for reliability testing
+//void * gossip(void*);
+

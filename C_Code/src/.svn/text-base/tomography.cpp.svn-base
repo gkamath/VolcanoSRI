@@ -1,0 +1,291 @@
+/*
+ * tomography.cpp
+ *
+ *  Created on: Jun 22, 2014
+ *      Author: Paritosh Ramanan
+ */
+
+
+#include <stdio.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <stdlib.h>
+#include <string.h>
+#include <string>
+#include <ctime>
+#include <sstream>
+#include <vector>
+#include <iostream>
+#include <iterator>
+#include <pthread.h>
+#include "networkutils.h"
+#include "Tomography.h"
+#include "SMPI.h"
+#include "readdatafrommatlab.h"
+#include "BayesianArt.h"
+#include "ComputeThread.h"
+#include "InitDaemon.h"
+#include "LogUtil.h"
+#include "fileOperation.h"
+
+#define AIDX_FILE "Aidx"
+#define B_FILE "b"
+#define GOSSIP_CONFIG_FILE "gossip_config"
+#define TOP_CONFIG_FILE "top_config"
+
+using namespace std;
+
+int res_levels = 0;					//resolution levels
+vector<string> config_files_name;	//config files name on different resolution levels
+char ipaddr[100];
+vector<double> a_ls;
+vector<int> id_ls;
+vector< vector<double> > A_l;
+vector< vector<int> > idx_l;
+vector<double> b_l;
+vector<double> x;
+//int dim;
+
+
+double rho;
+double lambda;
+double tolerance;
+int rounds;
+int dim;
+double update;
+int global_rounds = 0;
+int max_rounds = 100;
+int node_id = 0;
+bool runwatch = false;
+
+
+int computation_create;
+pthread_t comp_thread_id;
+
+int specified_rounds;
+
+//gossip thread
+pthread_t gossip_thread_id;
+int gossip_create;
+
+
+pthread_t server_thread_id;
+int server_create;
+
+// thread for socket client of sending messages
+pthread_t client_thread_id;
+int client_create;
+
+
+
+void read_top_config_gout(char *top_config_file, int &dim,double &rho,double &lambda,double &tolerance,int &rounds, int &max_gossip_rounds) {
+
+	ifstream infile(top_config_file);
+
+	string s;
+	getline(infile, s);
+	dim  = atoi(s.c_str());
+
+	getline(infile,s);
+	rho = atof(s.c_str());
+
+	getline(infile,s);
+	lambda = atof(s.c_str());
+
+	getline(infile,s);
+	tolerance = atof(s.c_str());
+
+	getline(infile,s);
+	rounds = atoi(s.c_str());
+
+	getline(infile,s);
+	max_gossip_rounds = atoi(s.c_str());
+}
+
+
+
+int main(int argc, char *argv[])
+{
+	#ifdef BROADCAST
+					printf("Broadcast mode\n");
+				#else
+					printf("Broadcast mode off\n");
+				#endif
+	
+	// initialize the program as a daemon
+	if(init_daemon() == -1) 
+		{
+			error(LOG_APPL, "INIT_DAEMON ERROR can't fork self");
+			exit(1);
+		}
+	info(LOG_APPL,"Tomosysd started");
+	
+
+	// Read all the config file to generate Ax = b from matlab
+	read_top_config_gout((char*)TOP_CONFIG_FILE,dim,rho,lambda,tolerance,rounds,max_rounds);
+	//read_top_config_gout((char*)TOP_CONFIG_FILE,&dim,&rho,&lambda,&tolerance,&rounds,&max_rounds);
+	vector_len = dim*dim;
+	
+	//every node I will create a cache where I have stored the initial slowness
+	info(LOG_APPL,"Read dim : %d rho :%f lambda : %f tolerance : %f rounds : %f\n",dim,rho,lambda,tolerance,rounds);
+	//rounds=10; //number of times of BART	
+
+	slow_self.assign(vector_len,0.0);
+	read_slowness_model_gout("slow_self",slow_self);
+	info(LOG_APPL,"Slow_self created of size %d",slow_self.size());
+
+	//TODO: Remove comment to enable bayesian art
+	//read_A_idx((char*)AIDX_FILE, (char*) B_FILE, A_l,idx_l,b_l,dim);
+	
+
+	SMPI_INIT((char*)GOSSIP_CONFIG_FILE);
+
+	
+
+	while(global_rounds < max_rounds)
+		{
+				global_rounds++;
+				
+				info(LOG_APPL,"ITERATION : %d norm of summation is %f",global_rounds,fnorm(slow_self));
+				specified_rounds=1; //**********Gossip Batch size***********//
+				//for ART
+				
+				computation_create = pthread_create(&comp_thread_id, NULL, &slowness_compute, NULL);
+				if(computation_create != 0){
+					error(LOG_APPL,"THREAD ERROR computation pthread failed");
+					exit(1);
+				}
+				//suspends the comp thread once its done
+				pthread_join(comp_thread_id, NULL);
+
+				//sleep(5);
+				
+				//slowind.assign(slowness.begin(), slowness.end());
+
+				//info(LOG_APPL,"Size of Slowind %d ",slowind.size());
+				
+				string slow_file = "results/slow_self";
+				stringstream ss;
+				ss << global_rounds;
+				string rnds=ss.str();
+				string slowness_file_name=slow_file+rnds;
+
+				write_slowness_gout(slowness_file_name,slow_self,dim);
+
+
+				//slowall.clear();
+				//I will try to send my slowness to some other node
+				
+				gossip_create = pthread_create(&gossip_thread_id, NULL, &SMPI_ALLREDUCE, NULL);
+				if(gossip_create != 0){
+					error(LOG_APPL,"THREAD ERROR computation pthread failed");
+					exit(1);
+				}
+				//suspends the comp thread once its done
+				pthread_join(gossip_thread_id, NULL);
+				info(LOG_APPL,"<-------------------Joined thread finished batch------------------->\n");	
+			
+
+		}
+	//info(LOG_APPL,"Finished my share of iterations");		
+	return 0;
+}
+
+
+
+
+
+
+
+/*
+#include "UdpThreads.h"
+#include "MulticastThread.h"
+#include "Bundle.h"
+
+#define TOP_CONFIG_FILE "config"
+#define SLOWNESS_FILE "vector"
+
+#define EXE_PATH "./"
+#define BUNDLE_PATH "./"
+#define MODEL_PATH "./slowness/"
+#define MODEL_TEMP_PATH "./"
+#define MODEL_RECV_PATH "./bnin/"
+
+#define SPACE_CHAR " "
+#define STAR_CHAR "*"
+#define UNDER_SCORE "_"
+#define STATUS_FILE "status.ui"
+#define STATUS_FILE_INI "status_init.ui"
+#define DEFAULT_PORT 6666
+#define IP_ADD_LEN 4
+
+*/
+
+/*
+//timer management variables
+clock_t start;
+double duration;
+
+
+//state variable for random gossip;
+bool solicit=false;
+bool wait_for_recv=false;
+bool recieve_msg=false;
+
+//pthread_t comp_thread_id;
+//int computation_create;
+int specified_rounds;
+
+pthread_t clientWatchingThread_id;
+int inotify_create;
+
+*/
+
+/*
+pthread_mutex_t mutex_sending_flag;
+pthread_cond_t cv_sending_flag;
+
+pthread_mutex_t mutex_rx_done;
+pthread_mutex_t mutex_tx_done;
+
+//lock for random gossip
+pthread_mutex_t wait_recv;
+*/
+
+
+
+	/*
+	// create socket server thread for receiving rays
+	server_create = pthread_create(&server_thread_id, NULL, &udp_socket_server, NULL);
+	if(server_create != 0)
+		{
+			error(LOG_APPL, "THREAD create server pthread failed");
+			exit(1);
+		}
+
+	// create socket client thread for sending rays
+	client_create = pthread_create(&client_thread_id, NULL, &udp_socket_client, NULL);
+	if(client_create != 0)
+		{
+			error(LOG_APPL, "THREAD create client pthread failed");
+			exit(1);
+		}
+			
+	info(LOG_APPL,"successfully created server and client");
+	//sleep(5);
+	//chosen_ip=NULL;
+	*/
+
+//read_slowness_model_gout("summation", slowness); //initial slowness model
+	//info(LOG_APPL,"Slowness summation file read of size %d",slowness.size());
+
+	/*char * bndl_service_dir = BUNDLE_PATH;
+	prepareBaseDirectory(bndl_service_dir);
+	*/	
+	/*multicast_create = pthread_create(&multicast_thread_id, NULL, &multicast, NULL);
+	if(multicast_create != 0)
+		{
+			error(LOG_APPL, "THREAD ERROR multicast pthread failed");
+			exit(1);
+		}
+	*/

@@ -1,0 +1,6 @@
+#ifndef UDP_THREADS_H
+#define UDP_THREADS_H
+void *udp_socket_server(void *arg);
+void *udp_socket_client(void *arg);
+
+#endif

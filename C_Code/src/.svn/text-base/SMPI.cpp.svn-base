@@ -1,0 +1,542 @@
+#include<SMPI.h>				
+
+pthread_mutex_t mutex_sending_flag;
+pthread_cond_t cv_sending_flag;
+
+char chosen_ip[20];
+
+
+//timer management variables
+clock_t start;
+double duration;
+
+//state variable for random gossip;
+bool solicit=false;
+bool wait_for_recv=false;
+bool recieve_msg=false;
+
+//pthread_t comp_thread_id;
+//int computation_create;
+
+//
+bool sending_flag = false;
+bool recv_window  = true;
+
+
+int * latestvalind;
+int neighborcount;
+char** neighborips;
+
+//lock for random gossip
+pthread_mutex_t wait_recv;
+
+//variables related to data
+int vector_len;
+vector<double> slowness;
+vector<double> slowind;
+vector<double> slow_self;
+vector< vector<double> > slowall;
+vector< vector<double> > slowalltobeaveraged;
+vector<double> avg;
+
+
+//the wait times and sleep times for gossip
+double WAITTIME;
+int MAX_SLEEP_TIME;
+int MAX_WAIT_TRIES;
+
+
+int solicit_tries;
+
+
+int SMPI_SEND(char *DESTINATION,char *buffer, int buffer_len,int scope)
+{
+    struct sockaddr_in si_other;
+    int s, i, slen=sizeof(si_other);
+    //char buf[BUFLEN];
+    //char message[BUFLEN];
+ 
+    if ( (s=socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP)) == -1)
+    {
+	error(LOG_APPL,"SMPI_SEND:unable to initiate socket");
+	return 0;
+        //die("socket");
+    }
+ 
+    memset((char *) &si_other, 0, sizeof(si_other));
+    si_other.sin_family = AF_INET;
+    si_other.sin_port = htons(19999);
+    inet_aton(DESTINATION, &si_other.sin_addr);
+    int status= sendto(s, buffer,buffer_len , 0 , (struct sockaddr *) &si_other, slen);
+    close(s);
+    return status;
+	
+}
+
+int SMPI_RECIEVE(char *buffer, int buffer_max_len, char *src_ip)
+{
+	struct sockaddr_in si_me, si_other;
+    int s, i , recv_len;
+    socklen_t slen = sizeof(si_other);
+    char buf[buffer_max_len];
+     
+    //create a UDP socket
+    if ((s=socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP)) == -1)
+    {error(LOG_APPL,"SMPI_RECIEVE:error creating socket!");
+        //die("socket");
+    }
+     
+    // zero out the structure
+    memset((char *) &si_me, 0, sizeof(si_me));
+     
+    si_me.sin_family = AF_INET;
+    si_me.sin_port = htons(19999);
+    si_me.sin_addr.s_addr = htonl(INADDR_ANY);
+     
+    //bind socket to port
+    if( bind(s , (struct sockaddr*)&si_me, sizeof(si_me) ) == -1)
+    {
+	error(LOG_APPL,"SMPI_RECIEVE:error binding socket!");
+        //die("bind");
+    }  
+    int status = recvfrom(s, buffer, buffer_max_len, 0, (struct sockaddr *) &si_other, &slen);
+    //info(LOG_APPL,"status : %d",status);
+    strcpy(src_ip,inet_ntoa(si_other.sin_addr));
+    strcpy(buffer,buf);
+	
+    //unbind socket
+    const int       optVal = 1;
+    const socklen_t optLen = sizeof(optVal);
+
+    int rtn = setsockopt(s, SOL_SOCKET, SO_REUSEADDR, (void*) &optVal, optLen);
+    close(s);
+    return status;	
+}
+
+void SMPI_INIT(char* GOSSIP_CONFIG_FILE)
+{	
+	//load neighbors, create map 
+	neighborips=recv_list(&neighborcount);
+	latestvalind=(int*)malloc(neighborcount*sizeof(int));	
+	for(int i=0;i<neighborcount;i++)
+		{
+			latestvalind[i]=-1;
+		}
+	pthread_t server_thread_id;
+	int server_create;
+
+	// thread for socket client of sending messages
+	pthread_t client_thread_id;
+	int client_create;
+
+	server_create = pthread_create(&server_thread_id, NULL, &udp_socket_server, NULL);
+	if(server_create != 0)
+		{
+			error(LOG_APPL, "THREAD create server pthread failed");
+			exit(1);
+		}
+
+	// create socket client thread for sending rays
+	client_create = pthread_create(&client_thread_id, NULL, &udp_socket_client, NULL);
+	if(client_create != 0)
+		{
+			error(LOG_APPL, "THREAD create client pthread failed");
+			exit(1);
+		}
+	info(LOG_APPL,"Server and client threads created");
+	
+	//read gossip details
+	read_gossip_config((char*)GOSSIP_CONFIG_FILE,WAITTIME,MAX_SLEEP_TIME,specified_rounds,solicit_tries);
+	info(LOG_APPL,"Read WAITTIME : %f MAX_SLEEP_TIME :%d specified_rounds : %d MAX_WAIT_TRIES : %d\n",WAITTIME,MAX_SLEEP_TIME,specified_rounds,MAX_WAIT_TRIES);
+	if(WAITTIME == 0)
+		{
+			WAITTIME=DEF_WAITTIME;
+			info(LOG_APPL,"default wait time %f",WAITTIME);
+		}
+	if(MAX_SLEEP_TIME == 0)
+		{
+			MAX_SLEEP_TIME = DEF_MAX_SLEEP_TIME;
+			info(LOG_APPL,"default max_sleep time %f",MAX_SLEEP_TIME);
+		}
+
+	if(specified_rounds == 0)
+		{		
+			specified_rounds = DEF_SPECIFIED_ROUNDS;
+			info(LOG_APPL,"default specified_rounds %d",specified_rounds);
+		}
+	if(MAX_WAIT_TRIES == 0)
+		{		
+			MAX_WAIT_TRIES = DEF_SOLICIT_TRIES;
+			info(LOG_APPL,"default solicit_tries %d",MAX_WAIT_TRIES);
+		}
+	
+
+}
+
+void *SMPI_ALLREDUCE(void * arg)
+{
+
+	int gossip_rounds=0;
+	int solicit_tries=0;
+	//recv_window=true;
+	while(gossip_rounds<specified_rounds && solicit_tries < MAX_WAIT_TRIES){
+
+
+				info(LOG_APPL,"Number of rounds finished %d",gossip_rounds);
+
+				
+				/*if(slow_self[0]==2.0)
+					{sleep(2);info(LOG_APPL,"delay set to 2");}
+				else if(slow_self[0]==4.0)
+					{sleep(4);info(LOG_APPL,"delay set to 4");}				
+				*/
+				#ifdef BROADCAST 
+				//if(broadcast==true)
+				//	{
+						sleep((rand()%MAX_SLEEP_TIME));
+						pthread_mutex_lock(&mutex_sending_flag);
+						sending_flag = true;
+						pthread_cond_signal(&cv_sending_flag);
+						pthread_mutex_unlock(&mutex_sending_flag);
+
+						bool sent_done;
+						pthread_mutex_lock(&mutex_sending_flag);
+						sent_done = sending_flag;
+						pthread_mutex_unlock(&mutex_sending_flag);
+						//sleep(2);
+						while(sent_done) 
+							{
+								//sleep(10);
+								//info(LOG_APPL, "________wait_for_ray_sent_done_signal________");
+								pthread_mutex_lock(&mutex_sending_flag);
+								sent_done = sending_flag;
+								pthread_mutex_unlock(&mutex_sending_flag);
+							}
+						//info(LOG_APPL, "sent my rays");
+
+						//Now I will listen in for rays
+						// counter for the incoming rays
+						//Right now I am waiting for one ray to be recieved
+				
+						//function of lock variable is to open a window for the udpthreads::server thread to accept values from neighbors.
+						//since lock variable is being set and reset by the same thread we do not need any mutex or semaphore.
+						//release lock variable to accept neighbor values
+						//run for t seconds
+						//exert lock variable				
+						//recv_window=true;				
+						start = std::clock();
+						duration=0;
+						while(1)
+							{
+								duration = ( clock() - start ) / (double) CLOCKS_PER_SEC;
+								if(duration>=WAITTIME && slowall.size()==0)
+									{
+								
+										duration=0.0;
+										start = clock();
+										info(LOG_APPL,"Waited %f seconds. Nobody sent me anything. Resetting clock and starting over",WAITTIME);
+										
+										break;						
+									}
+								else if (duration<WAITTIME)
+									{
+								
+									}
+								else if(duration>=WAITTIME && slowall.size()>0)
+									{
+										break;	
+									}
+
+							}
+						//info(LOG_APPL,"After %f secs, recieved %d rays, will now process them",3.0,slowall.size()); 
+						recv_window=false; 
+						if(slowall.size()==0)
+							{	solicit_tries++;
+								recv_window =true;
+								continue;
+							}
+						//extract all the latest values from neighbors	
+						slowalltobeaveraged.push_back(slow_self);
+						for(int i=0;i<neighborcount;i++)
+							{	
+								if(latestvalind[i]!=-1)
+								slowalltobeaveraged.push_back(slowall[latestvalind[i]]);
+							}
+						//clear buffer and all the latest values
+						slowall.clear();
+						for(int i=0;i<neighborcount;i++)
+							{
+								latestvalind[i]=-1;
+							}
+						recv_window =true;
+						//calculate average
+						double rows = neighborcount+1;
+						int cols = slowalltobeaveraged[0].size();
+						//info(LOG_APPL,"No of columns are: %d",cols);
+						double sum = 0;
+						int count=0;
+						
+							 	for(int i = 0; i < cols; i++)
+									{	//info(LOG_APPL,"considering %d column",i);
+						
+										if (slow_self.size()==0)
+											{
+												error(LOG_APPL,"No of cols turned out to be 0...crashing!");
+											}
+									 	for(int j = 0; j < rows; j++) 
+											{
+								
+												//if(slowall[j][i]!=0) 
+													{									
+														sum = sum + slowalltobeaveraged[j][i];
+														count++;
+													}
+												 //info(LOG_APPL,"%.16f",slowall[j][i]);
+										 	}
+										if(count==0)
+											{
+												slow_self[i]=0;
+											}
+										else
+											{
+									 			slow_self[i]=(sum/count); //push back is important !
+											}					 	
+									 	sum = 0;
+										count=0;
+							 		}
+							
+				 		//info(LOG_APPL,"Start Averaging with slowness from %d nodes",slowall.size());
+						//info(LOG_APPL,"There are %d columns",slowall[0].size());
+					 	
+						slowalltobeaveraged.clear();
+						write_slowness_gout("slow_self",slow_self,dim);
+				 			
+		 				info(LOG_APPL,"Average Done\n");
+						gossip_rounds++;	
+						
+
+
+						//After I hear from my neighbor(s) I will read vector from file and add to slowall
+				
+				
+						//slowall.push_back(slow_self);
+						//calculate avaerage of recieved + self
+						//slow_self.clear();
+				
+				//	}
+
+
+
+
+
+
+				#else
+					//{
+						if(recieve_msg==false)//info(LOG_APPL, "I havent recieved a message so I will try sending one");
+							{	if(wait_for_recv!=true)//I am soliciting
+									{
+										sleep((rand()%MAX_SLEEP_TIME));	
+										info(LOG_APPL,"Waking up from sleep");
+									}
+								/*if (solicit == false && recieve_msg == true && wait_for_recv == true) 
+									{
+										//somebody has sent me a message while i was sleeping so I will continue
+									}
+								else if(solicit == false)
+									{// wait_for_recv = false => I am soliciting
+									 // wait_for_recv = true => I am responding to unsolicited request
+										pthread_mutex_lock(&mutex_sending_flag);
+										sending_flag = true;
+										pthread_cond_signal(&cv_sending_flag);
+										pthread_mutex_unlock(&mutex_sending_flag);
+
+										bool sent_done;
+										pthread_mutex_lock(&mutex_sending_flag);
+										sent_done = sending_flag;
+										pthread_mutex_unlock(&mutex_sending_flag);
+										//sleep(2);
+										while(sent_done) 
+											{
+												//sleep(10);
+												//info(LOG_APPL, "________wait_for_ray_sent_done_signal________");
+												pthread_mutex_lock(&mutex_sending_flag);
+												sent_done = sending_flag;
+												pthread_mutex_unlock(&mutex_sending_flag);
+											}
+										info(LOG_APPL,"sent my rays");
+										if(solicit == false)
+											{
+												continue;// i have sent a response to an unsolicited request
+											}
+										else{// i have now solicited and i need to wait for response
+										    }
+									}*/
+								pthread_mutex_lock(&mutex_sending_flag);
+								sending_flag = true;
+								pthread_cond_signal(&cv_sending_flag);
+								pthread_mutex_unlock(&mutex_sending_flag);
+
+								bool sent_done;
+								pthread_mutex_lock(&mutex_sending_flag);
+								sent_done = sending_flag;
+								pthread_mutex_unlock(&mutex_sending_flag);
+								//sleep(2);
+								while(sent_done) 
+									{
+										//sleep(10);
+										//info(LOG_APPL, "________wait_for_ray_sent_done_signal________");
+										pthread_mutex_lock(&mutex_sending_flag);
+										sent_done = sending_flag;
+										pthread_mutex_unlock(&mutex_sending_flag);
+									}
+								
+								
+								
+								pthread_mutex_lock(&wait_recv);
+								if(solicit==false && wait_for_recv==false)//I have responded to an unsolicited request
+									{info(LOG_APPL, "sent my rays");
+										pthread_mutex_unlock(&wait_recv);
+										continue;
+									}
+								else if (solicit == false && recieve_msg == true && wait_for_recv == true)//before i could send in UDPTHREADS i recieved so i will have to evaluate it again
+									{
+										pthread_mutex_unlock(&wait_recv);
+										continue;
+									}
+								else{//I will now wait for my neighbor to respond
+									solicit_tries++;	
+									pthread_mutex_unlock(&wait_recv);								
+								}
+
+							}
+						else
+							{
+								//info(LOG_APPL, "somebody has already sent me a ray while I was about to wake up");
+							}
+						pthread_mutex_lock(&wait_recv);
+						if(solicit==true)//solicited neighbor respond
+							{pthread_mutex_unlock(&wait_recv);
+								while(1)
+								{
+									//pthread_mutex_lock(&wait_recv);
+									duration=(clock()-start)/ (double) CLOCKS_PER_SEC;;
+								
+									if(duration >=WAITTIME && slowall.size()==0)
+										{
+											//solicitation failure has occured....remove wait_for_recv
+											pthread_mutex_lock(&wait_recv);
+											wait_for_recv=false;
+											solicit=false;
+											info(LOG_APPL,"%s has failed to respond",chosen_ip);
+											pthread_mutex_unlock(&wait_recv);
+											break;
+										}
+								
+									else if(duration<WAITTIME)
+										{
+											if(slowall.size()>0)
+												{	
+													//assign slowall to self
+													pthread_mutex_lock(&wait_recv);
+													wait_for_recv=false;
+													pthread_mutex_unlock(&wait_recv);
+													break;
+												}
+											else
+												{
+												}
+										}
+									
+									//assign slowall to slow_self
+									//set wait_for_recv as false
+									//pthread_mutex_unlock(&wait_recv);
+									//continue
+								}
+								if(slowall.size()==0)
+									{
+										continue;
+									}
+								else
+									{	pthread_mutex_lock(&wait_recv);
+										info(LOG_APPL,"%s has responded",chosen_ip);
+										//assign slowall to slow_self
+										//slow_self.clear();
+										slow_self=slowall[0];
+										//chosen_ip=NULL;
+										recieve_msg=false;slowall.clear();
+										pthread_mutex_unlock(&wait_recv);
+										gossip_rounds++;
+										continue;
+										//set wait_for_recv as false
+										
+									}
+							}
+						else if(solicit==false)//unsolicited neighbor responds 
+							{//pthread_mutex_lock(&wait_recv);
+								//do the average below
+								
+								if(recieve_msg==true)
+									{
+										recieve_msg=false;
+									}
+								
+							}	
+
+						pthread_mutex_unlock(&wait_recv);
+						
+					//}
+					//}
+				
+
+				// Do the average
+				slowall.push_back(slow_self);
+		 		//info(LOG_APPL,"Start Averaging with slowness from %d nodes",slowall.size());
+				//info(LOG_APPL,"There are %d columns",slowall[0].size());
+			 	double rows = slowall.size();
+			 	int cols = slowall[0].size();
+				//info(LOG_APPL,"No of columns are: %d",cols);
+			 	double sum = 0;
+				int count=0;
+			 	for(int i = 0; i < cols; i++)
+					{	//info(LOG_APPL,"considering %d column",i);
+						
+						if (slow_self.size()==0)
+							{
+								error(LOG_APPL,"No of cols turned out to be 0...crashing!");
+							}
+					 	for(int j = 0; j < rows; j++) 
+							{
+								
+								//if(slowall[j][i]!=0) 
+								//	{									
+										sum = sum + slowall[j][i];
+										count++;
+								//	}
+								 //info(LOG_APPL,"%.16f",slowall[j][i]);
+						 	}
+						if(count==0)
+							{
+								slow_self[i]=0;
+							}
+						else
+							{
+					 			slow_self[i]=(sum/count); //push back is important !
+							}					 	
+					 	sum = 0;
+						count=0;
+			 		}
+				
+				write_slowness_gout("slow_self",slow_self,dim);
+				 				
+				slowall.clear();
+				
+ 				info(LOG_APPL,"Average Done\n");
+				gossip_rounds++;
+				#endif
+				
+		
+	}
+	info(LOG_APPL,"finished my share of iterations Solicited_tries is %d Successful Tries %d\n",solicit_tries, gossip_rounds);
+return NULL;
+
+}

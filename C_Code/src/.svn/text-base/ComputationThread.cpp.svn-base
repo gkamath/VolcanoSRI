@@ -1,0 +1,21 @@
+#include <stdio.h>
+#include <string.h>
+#include <string>
+#include <sstream>
+#include <time.h>
+
+#include "Tomography.h"
+#include "LogUtil.h"
+#include "BayesianArt.h"
+#include "readdatafrommatlab.h"
+
+
+void *slowness_compute(void *arg) {
+	 time_t rawtime;
+	  struct tm * timeinfo;
+	
+	bayesian_art(A_l, idx_l, b_l, slow_self, vector_len, rho, lambda, tolerance, rounds);
+	info(LOG_APPL,"Bayesian ART DONE:");
+	sleep(1);
+    pthread_exit(0);
+}

@@ -1,0 +1,29 @@
+
+1. How to compile and run tcpdisseminate 
+g++ tcpperf.cpp -lpthread -llog4cpp -o tcpdisseminate
+
+then it will generate a execute file "tcpdisseminate", this program has three options: -v output log; -m run as main node for collecting vector and compute summation; -n run as nomal node contain vector
+
+there are two files, "vector" and "summation" used for storing normal node's vector and summation of all vectors.
+1) "vector" file format
+start
+1 2 3 4 5 6
+end
+
+2) "summation" file format
+2 3 4 5 6 7
+
+when nomal nodes modify vector file. it will notify main node to retrieve new vector and compute new summation and disseminate the new summation to all nomal nodes.
+
+
+2. How to run tcpdisseminate in CORE by CORE script.
+  1) In the python script "test_in_core.py", set variable "testdir" to be the location of current folder.
+  2) In the python script "test_in_core.py", set "numnodes_x" and "numnodes_y" to specify the dimension of meshnetwork.
+  3) In the python script "Wlantopology.py", set "OLSRD_DIR" to be "current_folder+olsrd".  For example, now it set OLSRD_DIR = "/home/danhuang/LabSVN/research/dan/volcano/workspace/DisseminationData/src/olsrd"
+
+  3) "sudo python test_in_core.py" to run core  
+  4) When the core running, you could find that there are numnodes_x*numnodes_y on the canvas, and by default, every node except node-1-1 is running as nomal node. So you need double click node and run tcpdisseminate as main node with "./tcpdisseminate -v -m"
+    or run "vcmd -c /tmp/pycore.*/n-1-1 -- ./tcpdisseminate -v -m" in linux cmdline
+ 
+3. How to kill all CORE testing process
+  Run "sudo python killAll.py" in DisseminationData/src.

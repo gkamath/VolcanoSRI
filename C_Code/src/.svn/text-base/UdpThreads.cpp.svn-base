@@ -1,0 +1,418 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
+#include <strings.h>
+#include <sys/param.h>
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <netdb.h>
+#include <arpa/inet.h>
+#include<string.h>
+#include<networkutils.h>
+//#include "TomoUtils.h"
+//#include "readdatafrommatlab.h"
+#include "LogUtil.h"
+#include "Serialization.h"
+#include "SMPI.h"
+//#define btoa(x) ((x)?"true":"false")
+// test unicast protocol
+//#include "Bundle.h"
+void die(char *s)
+{
+    perror(s);
+    exit(1);
+}
+void *udp_socket_server(void *arg) {
+  //FILE *fplog;
+  
+  //int sockfd, newsockfd, portno;
+  //socklen_t clilen;
+  //struct sockaddr_in serv_addr, cli_addr;
+  //int from_len = sizeof(cli_addr);
+  
+  //int n;
+  //int ipb4;
+  char buffer[BUFFER];
+  char src_ip[20];
+  int buffer_len;
+
+  
+
+  vector<double> slow_v;
+  int rays_counter = 0;
+  string ip_s;
+/*
+  //UDP thread initialization
+  struct sockaddr_in si_me, si_other;
+     
+  int s, i , recv_len;
+  socklen_t slen = sizeof(si_other);
+  //char buf[BUFLEN];
+     
+    //create a UDP socket
+    if ((s=socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP)) == -1)
+    {
+        die("socket");
+    }
+     
+    // zero out the structure
+    memset((char *) &si_me, 0, sizeof(si_me));
+     
+    si_me.sin_family = AF_INET;
+    si_me.sin_port = htons(19999);
+    si_me.sin_addr.s_addr = htonl(INADDR_ANY);
+     
+    //bind socket to port
+    if( bind(s , (struct sockaddr*)&si_me, sizeof(si_me) ) == -1)
+    {
+        die("bind");
+    }  
+*/
+  while(1)
+  {	
+	//int status = recvfrom(s, buffer, BUFFER, 0, (struct sockaddr *) &si_other, &slen);
+	//int status = recvBundle((char *)src_ip, (uint8_t*)buffer, buffer_len);
+	int status = SMPI_RECIEVE(buffer,BUFFER,src_ip);
+	
+	if(status > 0) 
+		{	
+                        //strcpy(src_ip,inet_ntoa(si_other.sin_addr));
+			#ifdef BROADCAST 
+			//if(broadcast==true)
+				//{
+				
+					if(recv_window==true)
+						{
+							//info(LOG_APPL,"Server Running");
+							unpacking(slow_v,buffer);
+				     			//info(LOG_APPL,"Unpacking Success");
+				     			slowall.push_back(slow_v);
+				     			rays_counter++;
+				     			info(LOG_APPL, "RECORDED:receive from: %s, received: %d, tt_value: %lf", src_ip,rays_counter,slow_v[0]);
+														
+							for(int i=0; i<neighborcount;i++)
+								{
+									if(strcmp(src_ip,neighborips[i])==0)
+										{
+											latestvalind[i]=(slowall.size()-1);
+										}
+								}							
+
+						}
+					else
+						{
+							info(LOG_APPL, "DISCARDED:received from: %s, received: %d", src_ip,rays_counter);
+						}
+				//}
+			#else
+				//{
+					//random gossip
+					//recieve and check if it is a correct value....
+					//if not correct value discard.....
+					pthread_mutex_lock(&wait_recv);
+					if(wait_for_recv==true) 
+						{	if(solicit == true){
+								if(strcmp(src_ip,chosen_ip)==0)
+									{
+										//if timer doesnt expire or negative ack not recieved.....
+										//I have recieved from my randomly chosen neighbor
+										//info(LOG_APPL,"Server Running");
+										unpacking(slow_v,buffer);
+							     			//info(LOG_APPL,"Unpacking Success");
+							     			slowall.push_back(slow_v);
+							     			rays_counter++;
+							     			info(LOG_APPL, "RECORDED:solicited message received from: %s, received: %d, tt_value: %lf", src_ip,rays_counter,slow_v[0]);
+										//set wait_for_recv = false here
+										//pthread_mutex_lock(wait_recv);
+										wait_for_recv=false;
+										solicit=false;
+										//pthread_mutex_unlock(wait_recv);
+									}
+							
+								else if(strcmp(src_ip,chosen_ip)!=0)
+									{	//I have recieved a unsolicited message from someone who wants to average
+										info(LOG_APPL, "DISCARDED:received from: %s, received: %d", src_ip,rays_counter);
+									} 
+							}
+							else{ // have not solicited any message but replying to neighbor.....thus cannot accept any messages till
+										  //i respond to the unsolicited request
+											//info(LOG_APPL, "DISCARDED 2:received from: %X %X %X, received: %d", src_mac[0],src_mac[1],src_mac[2],rays_counter);
+								info(LOG_APPL, "DISCARDED 2 :received from: %s, received: %d", src_ip,rays_counter);							
+							}								
+						}
+						
+					else if(wait_for_recv==false)
+						{
+							//wait_for_recv serves two purposes with the concept being to wait: either for the response from a solicited neighbor or for my self computation to finish
+							//so that I can reply with the average value.
+							
+							//unsolicited request for average
+							wait_for_recv=true;
+							solicit=false;
+							recieve_msg=true;
+							//info(LOG_APPL,"Server Running");
+							unpacking(slow_v,buffer);
+				     			//info(LOG_APPL,"Unpacking Success");
+				     			slowall.push_back(slow_v);
+				     			rays_counter++;
+				     			info(LOG_APPL, "RECORDED:unsolicited message received from: %s, received: %d, tt_value: %lf", src_ip,rays_counter,slow_v[0]);
+							strcpy(chosen_ip,src_ip);
+						}
+					pthread_mutex_unlock(&wait_recv);
+						
+
+				//}
+			#endif
+		    
+		} 
+	else 
+		{
+			error(LOG_APPL, "recv status: fail!\n");
+			//sleep(1);
+			continue;
+		}
+
+
+
+  }
+
+}
+
+void *udp_socket_client(void *arg) {
+  
+	int dst_portno;
+	//int sockfd, src_portno, n;
+	struct sockaddr_in serv_addr;
+	//struct sockaddr_in cli_addr;
+	//struct hostent *server;
+	
+	char raw_serv[20];
+	char **neighbor_ips;
+	char server_dest[IP_ADD_LEN];
+	char buffer[BUFFER];
+
+
+	int neighbor_count;
+	// rays counter
+	int rays_counter = 0;
+	int random_num = 0;
+	int sending_part = 0;
+	int len=0;
+	int ctr;
+	vector<double> slow_v(dim*dim,0.0);
+	/*
+    struct sockaddr_in si_other;
+    int s, i, slen=sizeof(si_other);
+    //char buf[BUFLEN];
+    //char message[BUFLEN];
+ 
+    if ( (s=socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP)) == -1)
+    {
+        die("socket");
+    }
+ 
+    memset((char *) &si_other, 0, sizeof(si_other));
+    si_other.sin_family = AF_INET;
+    si_other.sin_port = htons(19999);
+     */
+
+
+	while(1)
+	{
+		pthread_mutex_lock(&mutex_sending_flag);
+		while (!sending_flag) {
+			pthread_cond_wait(&cv_sending_flag, &mutex_sending_flag);
+			//info(LOG_APPL,"test 1");
+		}
+		pthread_mutex_unlock(&mutex_sending_flag);
+
+		//if (rays_counter < rays) {
+		//This is done just to avoid compilation error rays need to be set later
+		if (rays_counter < 1) 
+			{
+
+				bzero((char *) &serv_addr, sizeof(serv_addr));
+				serv_addr.sin_family = AF_INET;
+
+				
+				neighbor_ips=recv_list(&neighbor_count);
+				/*
+					if it is a random gossip
+					neighbor already chosen
+					send to him
+					set flag sent
+				*/
+									
+				if(neighbor_count==0)
+					{	
+						info(LOG_APPL,"No neighbors found");
+					}
+				else
+					{	
+						#ifdef BROADCAST 
+						//if(broadcast==true)
+						//	{
+								ctr=0;
+								while(ctr<neighbor_count)
+									{
+								
+										//stonetchar(neighbor_ips[ctr],server_dest);
+
+										info(LOG_APPL,"I am now sending to %s",neighbor_ips[ctr]);
+								
+										//bcopy((char *)server_dest, (char *)&serv_addr.sin_addr.s_addr, IP_ADD_LEN);
+										//serv_addr.sin_port = htons(19999);
+
+										int length = packing(slow_self,buffer);
+										//inet_aton(neighbor_ips[ctr] , &si_other.sin_addr);
+								    		//info(LOG_APPL,"Before sendBundle");
+										//int status = sendBundle(inet_ntoa(serv_addr.sin_addr), (uint8_t *)buffer, length);
+										//int status= sendto(s, buffer,length , 0 , (struct sockaddr *) &si_other, slen);
+								    		//info(LOG_APPL,"Client Running");
+										int status=SMPI_SEND(neighbor_ips[ctr],buffer,length,1);										
+										if( status <=0 ) 
+											{
+												error(LOG_APPL, "send fail!");
+												sleep(1);
+												continue;
+											} 
+										else 
+											{
+												rays_counter++;
+											}
+										ctr++;
+									}
+							//}
+						#else
+							//{	
+								//info(LOG_APPL,"Waiting to obtain lock");
+								pthread_mutex_lock(&wait_recv);
+								//info(LOG_APPL,"Obtained lock");
+								if(wait_for_recv==false && solicit==false)//I am the one soliciting an average
+								//if(wait_for_recv==false)									
+									{
+										//set wait_for_recv = true here and send to random neighbor
+										
+										wait_for_recv=true;
+										solicit=true;
+										strcpy(chosen_ip,neighbor_ips[0]);
+										
+										//stonetchar(neighbor_ips[0],server_dest);
+
+										info(LOG_APPL,"Soliciting I am now sending to %s",neighbor_ips[0]);
+								
+										//bcopy((char *)server_dest, (char *)&serv_addr.sin_addr.s_addr, IP_ADD_LEN);
+										//serv_addr.sin_port = htons(19999);
+
+										int length = packing(slow_self,buffer);
+										//inet_aton(neighbor_ips[0] , &si_other.sin_addr);
+								    		//info(LOG_APPL,"Before sendBundle");
+										//int status = sendBundle(inet_ntoa(serv_addr.sin_addr), (uint8_t *)buffer, length);
+								    		//info(LOG_APPL,"Client Running");
+										//int status= sendto(s, buffer,length , 0 , (struct sockaddr *) &si_other, slen);
+								    		//info(LOG_APPL,"Client Running");
+										int status=SMPI_SEND(neighbor_ips[0],buffer,length,1);									
+										if( status <=0 ) 
+											{
+												error(LOG_APPL, "send fail!");
+												sleep(1);
+												continue;
+											} 
+										else 
+											{
+												//rays_counter++;
+												start =clock();
+											}
+										
+									}
+								else if(wait_for_recv==true && recieve_msg==false)//I am responding to an unsolicited request
+									{
+										//I will reply to the solictor with the average
+										//chosen_ip,neighbor_ips[0];
+										//stonetchar(chosen_ip,server_dest);
+
+										//info(LOG_APPL,"replying to an unsolicited request I am now sending to %s",chosen_ip);
+								
+										//bcopy((char *)server_dest, (char *)&serv_addr.sin_addr.s_addr, IP_ADD_LEN);
+										serv_addr.sin_port = htons(19999);
+										//inet_aton(chosen_ip , &si_other.sin_addr);
+										int length = packing(slow_self,buffer);
+								    		//info(LOG_APPL,"Before sendBundle");
+										//int status = sendBundle(inet_ntoa(serv_addr.sin_addr), (uint8_t *)buffer, length);
+								    		//info(LOG_APPL,"Client Running");
+										//int status= sendto(s, buffer,length , 0 , (struct sockaddr *) &si_other, slen);
+								    		//info(LOG_APPL,"Client Running");
+										int status=SMPI_SEND(chosen_ip,buffer,length,1);									
+										if( status <=0 ) 
+											{
+												error(LOG_APPL, "send fail!");
+												sleep(1);
+												continue;
+											} 
+										else 
+											{
+												//rays_counter++;
+											}
+										//Now I am no longer soliciting and I am not waiting for anyone else
+										wait_for_recv=false;
+										solicit=false;
+									}
+								
+								else
+									{
+										//info(LOG_APPL,"I am stuck here ");
+										info(LOG_APPL,"wait_for_recieve:%s\tsolicit %s\t recieve_msg %s", btoa(wait_for_recv),btoa(solicit),btoa(recieve_msg));
+									}
+								rays_counter++;
+								//info(LOG_APPL,"Releasing lock");
+								pthread_mutex_unlock(&wait_recv);
+								//info(LOG_APPL,"Released lock");
+							//}
+							#endif
+
+					}
+									
+			
+				/*			
+				if(broadcast==true)
+					{
+				
+					}
+			
+				else
+					{
+						choose_random_neighbor(raw_serv);
+						stonetchar(raw_serv,server_dest);
+			
+						info(LOG_APPL,"I am now sending to %s",raw_serv);
+						//.........................	
+						bcopy((char *)server_dest, (char *)&serv_addr.sin_addr.s_addr, IP_ADD_LEN);
+						serv_addr.sin_port = htons(dst_portno);
+
+						int length = packing(slow_self,buffer);
+				    		info(LOG_APPL,"Before sendBundle");
+						int status = sendBundle(inet_ntoa(serv_addr.sin_addr), (uint8_t *)buffer, length);
+				    		info(LOG_APPL,"Client Running");
+						if(0 != status) {
+							error(LOG_APPL, "send fail!");
+							sleep(1);
+							continue;
+						} else {
+							rays_counter++;
+						}
+					}
+				*/
+		} 
+		
+		else 
+			{	
+				//info(LOG_APPL,"ray counter greater than 1");
+				pthread_mutex_lock(&mutex_sending_flag);
+				sending_flag = false;
+				pthread_mutex_unlock(&mutex_sending_flag);
+				rays_counter = 0;
+				//sleep(4);
+			}
+	}
+}

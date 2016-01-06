@@ -1,0 +1,132 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
+#include <strings.h>
+#include <sys/param.h>
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <netdb.h>
+#include <arpa/inet.h>
+
+//#include "TomoUtils.h"
+#include "readdatafrommatlab.h"
+#include "LogUtil.h"
+#include "Serialization.h"
+#include "Tomography.h"
+
+// test unicast protocol
+#include "Bundle.h"
+void *udp_socket_server(void *arg) {
+  FILE *fplog;
+  
+  int sockfd, newsockfd, portno;
+  socklen_t clilen;
+  struct sockaddr_in serv_addr, cli_addr;
+  int from_len = sizeof(cli_addr);
+  
+  int n;
+  int ipb4;
+  char buffer[BUFFER];
+  char src_ip[20];
+  int buffer_len;
+
+  
+
+  vector<double> slow_v;
+  int rays_counter = 0;
+  string ip_s;
+     
+  while(1)
+  {
+    
+    int status = recvBundle((char *)src_ip, (uint8_t*)buffer, buffer_len);
+
+    if(status == 0) {
+	slowall.clear();
+     info(LOG_APPL,"Server Running");
+     unpacking(slow_v,buffer);
+     info(LOG_APPL,"Unpacking Success");
+      slowall.push_back(slow_v);
+      rays_counter++;
+
+     info(LOG_APPL, "receive from: %s, received: %d, tt_value: %lf", src_ip,rays_counter,slow_v[0]);
+    
+    } else {
+        error(LOG_APPL, "recv status: fail!\n");
+        sleep(1);
+        continue;
+    }
+
+  }
+
+}
+
+void *udp_socket_client(void *arg) {
+  
+	int sockfd, src_portno, dst_portno, n;
+	struct sockaddr_in serv_addr;
+	struct sockaddr_in cli_addr;
+	struct hostent *server;
+	char server_dest[IP_ADD_LEN];
+	char raw_server_dest[INET_ADDRSTRLEN];
+	char buffer[BUFFER];
+
+	//dst_portno = socket_port;
+	dst_portno = 19999;
+
+	// rays counter
+	int rays_counter = 0;
+	int random_num = 0;
+	int sending_part = 0;
+
+	vector<double> slow_v(10,1.0);
+
+	while(1)
+	{
+		pthread_mutex_lock(&mutex_sending_flag);
+		while (!sending_flag) {
+			pthread_cond_wait(&cv_sending_flag, &mutex_sending_flag);
+		}
+		pthread_mutex_unlock(&mutex_sending_flag);
+
+		//if (rays_counter < rays) {
+		//This is done just to avoid compilation error rays need to be set later
+		if (rays_counter < 1) {
+
+			bzero((char *) &serv_addr, sizeof(serv_addr));
+			serv_addr.sin_family = AF_INET;
+			
+			//calculate a neighbor node at random depends on routing...currently configured for BATMAN
+			//if it is broadcast then simply set it to 255.255.255.255
+			//FILE * fp = popen("ip route ls table 66 | awk -F\" \" '{ if($3 ==\"eth0\") print $1 }'|sort -R | head -n 1", "r");
+			//fgets(raw_server_dest,sizeof(raw_server_dest),fp);
+			//pclose(fp);
+			//use this as address for sending information 		
+						
+			//info(LOG_APPL,"Random neighbor chosen %s",raw_server_dest);
+			//stonetchar("172.16.1.1", server_dest);
+			FILE* fp= popen("ip address | grep inet | grep eth0 | awk -F \" \" '{print $2}'","r");			
+			bcopy((char *)server_dest, (char *)&serv_addr.sin_addr.s_addr, IP_ADD_LEN);
+			serv_addr.sin_port = htons(dst_portno);
+
+			int length = packing(slowind,buffer);
+            		info(LOG_APPL,"Before sendBundle");
+			int status = sendBundle(inet_ntoa(serv_addr.sin_addr), (uint8_t *)buffer, length);
+            		info(LOG_APPL,"Client Running");
+			if(0 != status) {
+				error(LOG_APPL, "send fail!");
+				sleep(1);
+				continue;
+			} else {
+				rays_counter++;
+			}
+		} else {
+			pthread_mutex_lock(&mutex_sending_flag);
+			sending_flag = false;
+			pthread_mutex_unlock(&mutex_sending_flag);
+			rays_counter = 0;
+			sleep(4);
+		}
+	}
+}

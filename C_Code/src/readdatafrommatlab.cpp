@@ -1,0 +1,220 @@
+#include <iostream>
+#include <fstream>
+#include <sstream>
+#include <vector>
+#include <string.h>
+#include <map>
+#include <string>
+#include <stdlib.h>
+#include <stdio.h>
+#include <math.h>
+#include "readdatafrommatlab.h"
+#include "LogUtil.h"
+
+using namespace std;
+
+void read_A_idx(char *a_idxfile, char *b_file,
+	    vector< vector<double> > &A,
+	    vector< vector<int> > &idx,
+	    vector<double> &b, int dim) {
+
+	ifstream infile(a_idxfile);
+	vector<double> a_ls;
+	vector<int> id_ls;
+	string s;
+	int num;
+
+	ifstream inFile(b_file);
+	//	 vector<double> b_ls;
+	A.clear();
+	idx.clear();	
+	b.clear();
+	while(!inFile.eof()){
+		getline(inFile, s);
+		if(atof(s.c_str())!=0)
+			{b.push_back(atof(s.c_str()));
+			}
+
+	}
+	inFile.close();
+	int rows = b.size();
+	for(int i = 0; i<rows; i++){
+		getline(infile, s);
+		istringstream ss(s);
+		while (!ss.eof())         // See the WARNING above for WHY we're doing this!
+		{
+			string x;               // here's a nice, empty string
+			getline( ss, x, ' ' );  // try to read the next field into it
+			a_ls.push_back(atof(x.c_str()));
+		}
+		A.push_back(a_ls);
+
+		getline(infile, s);
+		istringstream sp(s);
+		while (!sp.eof())         // See the WARNING above for WHY we're doing this!
+		{
+			string x;               // here's a nice, empty string
+			getline( sp, x, ' ' );  // try to read the next field into it
+			id_ls.push_back(atoi(x.c_str()));
+		}
+		idx.push_back(id_ls);
+		a_ls.clear();
+		id_ls.clear();
+	}
+	infile.close();
+}
+
+void read_gossip_config(char *top_config_file, double &waittime, int &max_sleep_time,int &max_rounds, int &specified_rounds) {
+
+	ifstream infile(top_config_file);
+
+	// WAIT for SOLICIT RECIEVE
+	string s;
+	getline(infile, s);
+	waittime  = atof(s.c_str());
+
+	getline(infile,s);
+	max_sleep_time = atof(s.c_str());
+
+	getline(infile, s);
+	max_rounds  = atoi(s.c_str());
+
+	getline(infile, s);
+	specified_rounds  = atoi(s.c_str());
+	
+}
+
+
+void read_top_config_gout(char *top_config_file, int &dim,double &rho,double &lambda,double &tolerance,int &rounds) {
+
+	ifstream infile(top_config_file);
+
+	string s;
+	getline(infile, s);
+	dim  = atoi(s.c_str());
+
+	getline(infile,s);
+	rho = atof(s.c_str());
+
+	getline(infile,s);
+	lambda = atof(s.c_str());
+
+	getline(infile,s);
+	tolerance = atof(s.c_str());
+
+	getline(infile,s);
+	rounds = atoi(s.c_str());
+
+}
+
+void read_slowness_model_gout(char *slowness_file, vector<double> &slowness) {
+	string s;
+	double sl;
+	ifstream slowness_stream(slowness_file);
+	if(!slowness_stream.good())
+	{
+		info(LOG_APPL,"failed to read file\n");
+	}
+	int items=0;
+	//slowness.clear();
+	while (slowness_stream >> sl)
+	{
+		
+		slowness[items]=sl;
+		//info(LOG_APPL,"%f\n",slowness[items]);
+		items++;
+	}/*
+	slowness_stream >> s;
+	items = atoi(s.c_str());
+
+	for(int i = 0; i < 256; i++) {
+		
+		slowness_stream >> s;
+		slowness[i] = atof(s.c_str());
+	}
+	*/
+}
+
+void write_slowness_gout(string slowness_output_file, const vector<double> &slowness_model, int res_dim) {
+	
+	char *slowness_file_name = new char[slowness_output_file.size() + 1];
+	strcpy(slowness_file_name, slowness_output_file.c_str());
+	int vector_len = res_dim*res_dim;
+
+	FILE *fpresult;
+	while(1) {
+		//sleep(1);
+		fpresult = fopen(slowness_file_name, "w");
+		if(fpresult == NULL)
+			info(LOG_APPL, "open sdcard output file failed!");
+		else
+			break;
+	}
+	//fprintf(fpresult, "%d\n", vector_len);
+	info(LOG_APPL,"file header write done!");
+	for(int i = 0; i < vector_len; i++) {
+		//info(LOG_APPL,"%d",i);
+		fprintf(fpresult, "%.16f\n", slowness_model[i]);
+	}
+	fclose(fpresult);
+
+	info(LOG_APPL,"slowness sdcard output done!");
+}
+
+void write_slowness_final(string slowness_output_file, const vector< vector<double> > &slowness_model) {
+	
+	char *slowness_file_name = new char[slowness_output_file.size() + 1];
+	strcpy(slowness_file_name, slowness_output_file.c_str());
+	int vector_len = slowness_model[0].size();
+
+	FILE *fpresult;
+	while(1) {
+		//sleep(1);
+		fpresult = fopen(slowness_file_name, "w");
+		if(fpresult == NULL)
+			info(LOG_APPL, "open sdcard output file failed!");
+		else
+			break;
+	}
+	//fprintf(fpresult, "%d\n", vector_len);
+	info(LOG_APPL,"file header write done!");
+	int iter = slowness_model.size();
+	for (int i=0; i < iter;i++){
+		for(int j = 0; j < vector_len; j++) {
+			//info(LOG_APPL,"%d",i);
+			fprintf(fpresult, "%.16f ", slowness_model[i][j]);
+		}
+		fprintf(fpresult, "\n");
+	}
+	fclose(fpresult);
+
+	info(LOG_APPL,"slowness sdcard output done!");
+}
+
+void read_nodeid(char* filename,int &node_id){
+	string s;
+	ifstream slowness_stream(filename);
+
+
+	slowness_stream >> s;
+	node_id = atoi(s.c_str());
+}
+
+// // convert the ip address string to a char array
+// void stonetchar(string ip_string, char ip_add[]) {
+//   string add_seg;
+//   istringstream liness(ip_string);
+//   for(int i = 0; i < IP_ADD_LEN; i++) {
+//     getline(liness, add_seg, '.');
+//     ip_add[i] = atoi(add_seg.c_str());
+//     //info(LOG_APPL, "        == ip address ---- %d", (unsigned char)ip_add[i]);
+//   }
+// }
+
+/*string itoas(int i) {
+    string s;
+    stringstream out;
+    out << i;
+    s = out.str();
+    return s;
+}*/

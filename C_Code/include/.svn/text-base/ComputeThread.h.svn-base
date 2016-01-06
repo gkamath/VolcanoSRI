@@ -1,0 +1,6 @@
+#ifndef COMPUTETHREAD_H
+#define COMPUTETHREAD_H
+
+void *slowness_compute(void *arg);
+
+#endif
