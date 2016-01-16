@@ -1,0 +1,11 @@
+This file contains program that can generate a synthetic model of tomography and then solve using different algorithms
+1) Kaczmarz
+2)Randomized Kaczmarz
+3)CAV
+4)Cimmino's
+5)SART
+
+How To Run The Code:
+1) The main code is in tomoRun.m open this in matlab and run. I have written comments at each step and it is easy to follow.
+
+
